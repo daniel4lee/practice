@@ -39,6 +39,8 @@ class GuiRoot(QWidget):
         self.img = np.ndarray(())
         # flag for comfirming if any image has been opened
         self.original_flag = False
+        # saving grayscale img
+        self.grayscale = np.ndarray(())
 
         # control GUI layout
         hbox = QHBoxLayout()
@@ -197,6 +199,8 @@ class GuiRoot(QWidget):
                 self.img = np.stack((self.img,)*3, axis=-1)
             # save a copy of input image for recovering         
             self.original_img = np.copy(self.img)
+            self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
+            self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
             self.original_flag = True
             # display the image
             self.show_function(self.img)
@@ -276,9 +280,7 @@ class GuiRoot(QWidget):
             else:
                 direction = sobel_filter_convolve(img)[1].astype(np.uint8())
                 direction = np.where(magnitude == 0, 0, direction)
-                print(np.min(direction))
                 self.img = cv.applyColorMap(direction, cv.COLORMAP_JET)
-            
             self.show_function(self.img)
     def origin_function(self):
         # return the original image 
@@ -304,10 +306,9 @@ class GuiRoot(QWidget):
         det = xx*yy - xy**2
         trace = xx + yy
         r = det - k*(trace**2)
-        self.img = np.copy(self.original_img)
+
+        self.img = np.copy(self.grayscale)
         height, width, channel = self.img.shape
-        self.img = cv.cvtColor(self.img, cv.COLOR_BGR2GRAY)
-        self.img = np.stack((self.img,)*3, axis=-1)
         corner_def = np.percentile(r, 99)
         for h in range(height):
             for w in range(width):
@@ -324,11 +325,17 @@ class GuiRoot(QWidget):
     def rotate(self):
         angle = self.rotate_angle.value()
         self.img = ndimage.rotate(self.img, angle, reshape=True)
+        self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
+        self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
+        self.grayscale = ndimage.rotate(self.grayscale, angle, reshape=True)
         self.show_function(self.img)
     def scale(self):
         ratio = self.scaling_ratio.value()
         height, width, channel = self.img.shape
         self.img = cv.resize(self.img, (int(width*ratio), int(height*ratio)), interpolation=cv.INTER_CUBIC)
+        self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
+        self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
+        self.grayscale = cv.resize(self.grayscale, (int(width*ratio), int(height*ratio)), interpolation=cv.INTER_CUBIC)
         self.show_function(self.img)
 if __name__ == '__main__':
     sys.argv += ['--style', 'fusion']
