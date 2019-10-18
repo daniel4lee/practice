@@ -46,10 +46,11 @@ class GuiRoot(QWidget):
         hbox = QHBoxLayout()
         vbox = QVBoxLayout()
         vbox.addWidget(self.file_qgroupbox)
+        vbox.addWidget(self.basic_qgroupbox)
         vbox.addWidget(self.GS_qgroupbox)
         vbox.addWidget(self.sobel_qgroupbox)
         vbox.addWidget(self.ST_qgroupbox)
-        vbox.addWidget(self.basic_qgroupbox)
+        
 
         vbox.setStretchFactor(self.file_qgroupbox, 2)
         vbox.setStretchFactor(self.GS_qgroupbox, 3)
@@ -98,7 +99,7 @@ class GuiRoot(QWidget):
         self.GS_kernel_label = QLabel("Kernal Size")
         self.kernel_size = QDoubleSpinBox()
         self.kernel_size.setDecimals(0)
-        self.kernel_size.setValue(3)
+        self.kernel_size.setValue(5)
         GS_layout.addWidget(self.GS_btn, 2, 0, 1, 2)
         GS_layout.addWidget(self.GS_sigam_label, 0, 0, 1, 1)
         GS_layout.addWidget(self.G_sigma, 0, 1, 1, 1)
@@ -134,15 +135,15 @@ class GuiRoot(QWidget):
         ST_layout.setSpacing(50)
         self.structure_tensor_btn = QPushButton("Apply", self)
         self.structure_tensor_btn.clicked.connect(self.structure_tensor)
-        self.structure_window_label = QLabel("window size of Harris")
+        self.structure_window_label = QLabel("structure tensor window")
         self.structure_window = QDoubleSpinBox()
         self.structure_window.setDecimals(0)
-        self.structure_window.setValue(3)
+        self.structure_window.setValue(10)
         self.structure_window.setRange(2,100)
         self.nms_window_label = QLabel("window size of NMS")
         self.nms_window = QSpinBox()
         self.nms_window.setValue(3)
-        self.nms_window.setRange(2,100)
+        self.nms_window.setRange(0, 100)
         ST_layout.addWidget(self.structure_tensor_btn, 2, 0, 1, 2)
         ST_layout.addWidget(self.structure_window_label, 0, 0, 1, 1)
         ST_layout.addWidget(self.structure_window, 0, 1, 1, 1)
@@ -158,8 +159,7 @@ class GuiRoot(QWidget):
         self.img_rotate_btn = QPushButton("Rotating", self)
         self.img_rotate_btn.clicked.connect(self.rotate)
         self.rotate_angle_label = QLabel("Angle:")
-        self.rotate_angle = QDoubleSpinBox()
-        self.rotate_angle.setDecimals(0)
+        self.rotate_angle = QSpinBox()
         self.rotate_angle.setValue(30)
         self.rotate_angle.setRange(0, 360)
         basic_layout.addWidget(self.img_rotate_btn, 1, 0, 1, 2)
@@ -239,7 +239,6 @@ class GuiRoot(QWidget):
                     g_filter[i][j] = (j - center)**2 + (i - center)**2
                     g_filter[i][j] = gaussian_2d(sigma, g_filter[i][j])
                     sumation += g_filter[i][j]
-            print(g_filter)
             return g_filter/sumation
         def convolve_function(g_filter, R, G, B):
             red = ndimage.convolve(R, g_filter, mode='nearest')
@@ -267,7 +266,6 @@ class GuiRoot(QWidget):
             D = np.arctan2(self.y, self.x)
             #D = D*(255/np.pi)+255
             D = D*127.5/np.pi+127.5
-            print(np.max(D), np.min(D))
             #return self.x, self.y
             return (G-np.min(G))/(np.max(G)-np.min(G))*255, D
         if self.original_flag:
@@ -280,7 +278,7 @@ class GuiRoot(QWidget):
             else:
                 direction = sobel_filter_convolve(img)[1].astype(np.uint8())
                 direction = np.where(magnitude == 0, 0, direction)
-                self.img = cv.applyColorMap(direction, cv.COLORMAP_JET)
+                self.img = cv.applyColorMap(direction, cv.COLORMAP_INFERNO)
             self.show_function(self.img)
     def origin_function(self):
         # return the original image 
@@ -290,12 +288,17 @@ class GuiRoot(QWidget):
         else:
             # reset img and show it
             self.img = np.copy(self.original_img)
+            self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
+            self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
             self.show_function(self.img)
     def structure_tensor(self):
         def nms(R, h, w, i, j, window_size):
-            rad = int(window_size/2)
-            radi = round(window_size/2)
-            return (True if R[i,j] == np.max(R[max(0, i-rad) : min(i+radi, h-1), max(0, j-rad) : min(j+radi, w-1)]) else False)
+            if nms_window_size < 2:
+                return True
+            else:
+                rad = int(window_size/2)
+                radi = round(window_size/2)
+                return (True if R[i,j] == np.max(R[max(0, i-rad) : min(i+radi, h-1), max(0, j-rad) : min(j+radi, w-1)]) else False)
         window_size = int(self.structure_window.value())
         nms_window_size = int(self.nms_window.value())
         window = np.ones((window_size, window_size))
@@ -309,7 +312,8 @@ class GuiRoot(QWidget):
 
         self.img = np.copy(self.grayscale)
         height, width, channel = self.img.shape
-        corner_def = np.percentile(r, 99)
+        corner_def = np.percentile(r, 95)
+        print("H,W",height," ",width)
         for h in range(height):
             for w in range(width):
                 if r[h, w] > corner_def and nms(r, height, width, h, w, nms_window_size):
@@ -323,40 +327,24 @@ class GuiRoot(QWidget):
         qr.moveCenter(central_p)
         self.move(qr.topLeft())
     def rotate(self):
-        angle = self.rotate_angle.value()
-        self.img = ndimage.rotate(self.img, angle, reshape=True)
-        self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
-        self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
-        self.grayscale = ndimage.rotate(self.grayscale, angle, reshape=True)
-        self.show_function(self.img)
+        if self.original_flag:
+            angle = self.rotate_angle.value()
+            self.img = np.copy(ndimage.rotate(self.img, angle, reshape=True))
+            self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
+            self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
+            self.grayscale = ndimage.rotate(self.grayscale, angle, reshape=True)
+            self.show_function(self.img)
     def scale(self):
-        ratio = self.scaling_ratio.value()
-        height, width, channel = self.img.shape
-        self.img = cv.resize(self.img, (int(width*ratio), int(height*ratio)), interpolation=cv.INTER_CUBIC)
-        self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
-        self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
-        self.grayscale = cv.resize(self.grayscale, (int(width*ratio), int(height*ratio)), interpolation=cv.INTER_CUBIC)
-        self.show_function(self.img)
+        if self.original_flag:
+            ratio = float(self.scaling_ratio.value())
+            height, width, channel = self.img.shape
+            self.img = cv.resize(self.img, (int(width*ratio), int(height*ratio)), interpolation=cv.INTER_CUBIC)
+            self.grayscale = np.copy(cv.cvtColor(self.original_img, cv.COLOR_BGR2GRAY))
+            self.grayscale = np.stack((self.grayscale,)*3, axis=-1)
+            self.grayscale = cv.resize(self.grayscale, (int(width*ratio), int(height*ratio)), interpolation=cv.INTER_CUBIC)
+            self.show_function(self.img)
 if __name__ == '__main__':
     sys.argv += ['--style', 'fusion']
     app = QApplication(sys.argv)
     gui_root = GuiRoot() # instance of the gui and finction
     sys.exit(app.exec_())
-'''
-        def explicit_correlation(image, kernel):
-            hi, wi= image.shape
-            hk, wk = kernel.shape
-            image_padded = np.zeros(shape=(hi + hk - 1, wi + wk - 1))    
-            image_padded[hk//2:-hk//2, wk//2:-wk//2] = image
-            out = np.zeros(shape=image.shape)
-            for row in range(hi):
-                for col in range(wi):
-                    for i in range(hk):
-                        for j in range(wk):
-                            out[row, col] += image_padded[row + i, col + j]*kernel[i, j]
-            return out
-        #
-                    for h in range(height):
-                for w in range(width):
-                    B[h, w]
-'''
